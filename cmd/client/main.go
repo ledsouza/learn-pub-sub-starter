@@ -34,7 +34,7 @@ func main() {
 		routing.ExchangePerilDirect,
 		queueName,
 		routing.PauseKey,
-		pubsub.Transient,
+		pubsub.SimpleQueueTransient,
 	)
 	if err != nil {
 		failOnError(err, "Failed to declare and bind queue")

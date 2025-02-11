@@ -14,9 +14,9 @@ func DeclareAndBind(
 		return nil, amqp.Queue{}, err
 	}
 
-	durable := simpleQueueType == Durable
-	autoDelete := simpleQueueType == Transient
-	exclusive := simpleQueueType == Transient
+	durable := simpleQueueType == SimpleQueueDurable
+	autoDelete := simpleQueueType == SimpleQueueTransient
+	exclusive := simpleQueueType == SimpleQueueTransient
 
 	queue, err := channel.QueueDeclare(
 		queueName,
