@@ -33,6 +33,17 @@ func main() {
 		routing.PlayingState{IsPaused: true},
 	)
 
+	_, _, err = pubsub.DeclareAndBind(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.SimpleQueueDurable,
+	)
+	if err != nil {
+		failOnError(err, "Failed to declare and bind game_logs queue")
+	}
+
 	gamelogic.PrintServerHelp()
 
 	for {
