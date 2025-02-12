@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -29,7 +30,9 @@ func DeclareAndBind(
 		autoDelete,
 		exclusive,
 		false,
-		nil,
+		amqp.Table{
+			"x-dead-letter-exchange": "peril_dlx",
+		},
 	)
 	if err != nil {
 		return nil, amqp.Queue{}, err
@@ -68,7 +71,7 @@ func SubscribeJSON[T any](
 		return err
 	}
 
-	deliveries, err := ch.Consume(
+	msgs, err := ch.Consume(
 		q.Name,
 		"",
 		false,
@@ -78,16 +81,17 @@ func SubscribeJSON[T any](
 		nil,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not consume messages: %v", err)
 	}
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- consumeMessages(deliveries, handler)
+		defer ch.Close()
+		errCh <- consumeMessages(msgs, handler)
 	}()
 	go func() {
 		if err := <-errCh; err != nil {
-			log.Printf("consumer terminated with error: %v", err)
+			log.Fatalf("consumer terminated with fatal error: %v", err)
 		}
 	}()
 
@@ -106,30 +110,31 @@ func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckTy
 		acktype := handler(payload)
 		switch acktype {
 		case Ack:
-			log.Printf("Processing acktype %v\n", acktype)
 			err := message.Ack(false)
-			return handleAckTypeError(acktype, err)
+			if err != nil {
+				return handleAckTypeError(acktype, err)
+			}
 		case NackRequeue:
-			log.Printf("Processing acktype %v\n", acktype)
 			err := message.Nack(false, true)
-			return handleAckTypeError(acktype, err)
+			if err != nil {
+				return handleAckTypeError(acktype, err)
+			}
 		case NackDiscard:
-			log.Printf("Processing acktype %v\n", acktype)
 			err := message.Nack(false, false)
+			if err != nil {
+				return handleAckTypeError(acktype, err)
+			}
+		}
+		log.Printf("unknown AckType: %v; discarding message", acktype)
+		err := message.Nack(false, false)
+		if err != nil {
 			return handleAckTypeError(acktype, err)
-		default:
-			log.Printf("unknown AckType: %v; discarding message", acktype)
-			err := message.Nack(false, false)
-			return handleAckTypeError(NackDiscard, err)
 		}
 	}
 	return nil
 }
 
 func handleAckTypeError(ackType AckType, err error) error {
-	if err != nil {
-		log.Printf("failed to process AckType %v: %v", ackType, err)
-		return err
-	}
-	return nil
+	log.Printf("failed to process AckType %v: %v", ackType, err)
+	return err
 }
