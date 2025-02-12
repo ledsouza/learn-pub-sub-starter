@@ -55,7 +55,7 @@ func SubscribeJSON[T any](
 	queueName,
 	key string,
 	simpleQueueType SimpleQueueType,
-	handler func(T),
+	handler func(T) AckType,
 ) error {
 	ch, q, err := DeclareAndBind(
 		conn,
@@ -94,7 +94,7 @@ func SubscribeJSON[T any](
 	return nil
 }
 
-func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T)) error {
+func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckType) error {
 	for message := range messages {
 		var payload T
 		if err := json.Unmarshal(message.Body, &payload); err != nil {
@@ -103,12 +103,33 @@ func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T)) erro
 			}
 			continue
 		}
-		handler(payload)
-		err := message.Ack(false)
-		if err != nil {
-			log.Printf("failed to ack message: %v", err)
-			return err
+		acktype := handler(payload)
+		switch acktype {
+		case Ack:
+			log.Printf("Processing acktype %v\n", acktype)
+			err := message.Ack(false)
+			return handleAckTypeError(acktype, err)
+		case NackRequeue:
+			log.Printf("Processing acktype %v\n", acktype)
+			err := message.Nack(false, true)
+			return handleAckTypeError(acktype, err)
+		case NackDiscard:
+			log.Printf("Processing acktype %v\n", acktype)
+			err := message.Nack(false, false)
+			return handleAckTypeError(acktype, err)
+		default:
+			log.Printf("unknown AckType: %v; discarding message", acktype)
+			err := message.Nack(false, false)
+			return handleAckTypeError(NackDiscard, err)
 		}
+	}
+	return nil
+}
+
+func handleAckTypeError(ackType AckType, err error) error {
+	if err != nil {
+		log.Printf("failed to process AckType %v: %v", ackType, err)
+		return err
 	}
 	return nil
 }

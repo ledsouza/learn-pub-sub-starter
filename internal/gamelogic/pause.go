@@ -3,10 +3,11 @@ package gamelogic
 import (
 	"fmt"
 
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
 )
 
-func (gs *GameState) HandlePause(ps routing.PlayingState) {
+func (gs *GameState) HandlePause(ps routing.PlayingState) pubsub.AckType {
 	defer fmt.Println("------------------------")
 	fmt.Println()
 	if ps.IsPaused {
@@ -16,4 +17,5 @@ func (gs *GameState) HandlePause(ps routing.PlayingState) {
 		fmt.Println("==== Resume Detected ====")
 		gs.resumeGame()
 	}
+	return pubsub.Ack
 }

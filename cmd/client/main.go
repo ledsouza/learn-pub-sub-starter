@@ -105,7 +105,6 @@ func main() {
 				fmt.Println(err)
 				continue
 			}
-			log.Println("Move message published successfully")
 		case "status":
 			gameState.CommandStatus()
 		case "help":
@@ -121,17 +120,18 @@ func main() {
 	}
 }
 
-func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
-	return func(ps routing.PlayingState) {
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) pubsub.AckType {
+	return func(ps routing.PlayingState) pubsub.AckType {
 		defer fmt.Print("> ")
-		gs.HandlePause(ps)
+		return gs.HandlePause(ps)
 	}
 }
 
-func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
-	return func(gl gamelogic.ArmyMove) {
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) pubsub.AckType {
+	return func(gl gamelogic.ArmyMove) pubsub.AckType {
 		defer fmt.Print("> ")
-		gs.HandleMove(gl)
+		_, acktype := gs.HandleMove(gl)
+		return acktype
 	}
 }
 
