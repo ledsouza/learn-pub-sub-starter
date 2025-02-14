@@ -106,7 +106,7 @@ func main() {
 		case "help":
 			gamelogic.PrintClientHelp()
 		case "spam":
-			fmt.Println("Spamming not allowed yet!")
+			gameState.CommandSpam(input, publishCh)
 		case "quit":
 			gamelogic.PrintQuit()
 			return

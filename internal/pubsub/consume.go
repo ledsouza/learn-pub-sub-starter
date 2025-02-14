@@ -120,6 +120,11 @@ func subscribe[T any](
 		return err
 	}
 
+	err = ch.Qos(10, 0, true)
+	if err != nil {
+		return err
+	}
+
 	msgs, err := ch.Consume(
 		q.Name,
 		"",

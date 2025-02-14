@@ -6,7 +6,13 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
+	"github.com/bootdotdev/learn-pub-sub-starter/internal/routing"
+	"github.com/rabbitmq/amqp091-go"
 )
 
 func PrintClientHelp() {
@@ -88,5 +94,32 @@ func (gs *GameState) CommandStatus() {
 	fmt.Printf("You are %s, and you have %d units.\n", p.Username, len(p.Units))
 	for _, unit := range p.Units {
 		fmt.Printf("* %v: %v, %v\n", unit.ID, unit.Location, unit.Rank)
+	}
+}
+
+func (gs *GameState) CommandSpam(input []string, channel *amqp091.Channel) {
+	if len(input) < 2 {
+		fmt.Println("spam <n>")
+		return
+	}
+
+	count, err := strconv.Atoi(input[1])
+	if err != nil {
+		fmt.Println("Invalid number provided")
+		return
+	}
+
+	for i := 0; i < count; i++ {
+		maliciousLog := GetMaliciousLog()
+		pubsub.PublishGob(
+			channel,
+			routing.ExchangePerilTopic,
+			routing.GameLogSlug+"."+gs.GetPlayerSnap().Username,
+			routing.GameLog{
+				CurrentTime: time.Now(),
+				Message:     maliciousLog,
+				Username:    gs.GetPlayerSnap().Username,
+			},
+		)
 	}
 }
