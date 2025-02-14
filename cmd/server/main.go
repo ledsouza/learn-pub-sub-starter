@@ -33,15 +33,16 @@ func main() {
 		routing.PlayingState{IsPaused: true},
 	)
 
-	_, _, err = pubsub.DeclareAndBind(
+	err = pubsub.SubscribeGob(
 		conn,
 		routing.ExchangePerilTopic,
 		routing.GameLogSlug,
 		routing.GameLogSlug+".*",
 		pubsub.SimpleQueueDurable,
+		handlerLog(),
 	)
 	if err != nil {
-		failOnError(err, "Failed to declare and bind game_logs queue")
+		failOnError(err, "Failed to subscribe game_logs queue")
 	}
 
 	gamelogic.PrintServerHelp()
@@ -81,6 +82,17 @@ func main() {
 		default:
 			fmt.Println("Unknown command")
 		}
+	}
+}
+
+func handlerLog() func(routing.GameLog) pubsub.AckType {
+	return func(gl routing.GameLog) pubsub.AckType {
+		defer fmt.Print("> ")
+		err := gamelogic.WriteLog(gl)
+		if err != nil {
+			return pubsub.NackDiscard
+		}
+		return pubsub.Ack
 	}
 }
 

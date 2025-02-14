@@ -1,6 +1,8 @@
 package pubsub
 
 import (
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -60,6 +62,53 @@ func SubscribeJSON[T any](
 	simpleQueueType SimpleQueueType,
 	handler func(T) AckType,
 ) error {
+	err := subscribe(
+		conn,
+		exchange,
+		queueName,
+		key,
+		simpleQueueType,
+		handler,
+		consumeJSONMessages,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func SubscribeGob[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) AckType,
+) error {
+	err := subscribe(
+		conn,
+		exchange,
+		queueName,
+		key,
+		simpleQueueType,
+		handler,
+		consumeGobMessages,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func subscribe[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
+	handler func(T) AckType,
+	messageConsumer func(<-chan amqp.Delivery, func(T) AckType) error,
+) error {
 	ch, q, err := DeclareAndBind(
 		conn,
 		exchange,
@@ -87,7 +136,7 @@ func SubscribeJSON[T any](
 	errCh := make(chan error, 1)
 	go func() {
 		defer ch.Close()
-		errCh <- consumeMessages(msgs, handler)
+		errCh <- messageConsumer(msgs, handler)
 	}()
 	go func() {
 		if err := <-errCh; err != nil {
@@ -98,7 +147,7 @@ func SubscribeJSON[T any](
 	return nil
 }
 
-func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckType) error {
+func consumeJSONMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckType) error {
 	for message := range messages {
 		var payload T
 		if err := json.Unmarshal(message.Body, &payload); err != nil {
@@ -108,23 +157,53 @@ func consumeMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckTy
 			continue
 		}
 		acktype := handler(payload)
-		switch acktype {
-		case Ack:
-			err := message.Ack(false)
-			if err != nil {
-				return handleAckTypeError(acktype, err)
-			}
-		case NackRequeue:
-			err := message.Nack(false, true)
-			if err != nil {
-				return handleAckTypeError(acktype, err)
-			}
-		case NackDiscard:
-			err := message.Nack(false, false)
-			if err != nil {
-				return handleAckTypeError(acktype, err)
-			}
+		err := handleMessageAck(message, acktype)
+		if err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func consumeGobMessages[T any](messages <-chan amqp.Delivery, handler func(T) AckType) error {
+	for message := range messages {
+		buffer := bytes.NewBuffer(message.Body)
+		var payload T
+		decoder := gob.NewDecoder(buffer)
+		err := decoder.Decode(&payload)
+		if err != nil {
+			if nackErr := message.Nack(false, true); nackErr != nil {
+				log.Printf("failed to nack message: %v", nackErr)
+			}
+			continue
+		}
+		acktype := handler(payload)
+		err = handleMessageAck(message, acktype)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func handleMessageAck(message amqp.Delivery, acktype AckType) error {
+	switch acktype {
+	case Ack:
+		err := message.Ack(false)
+		if err != nil {
+			return handleAckTypeError(acktype, err)
+		}
+	case NackRequeue:
+		err := message.Nack(false, true)
+		if err != nil {
+			return handleAckTypeError(acktype, err)
+		}
+	case NackDiscard:
+		err := message.Nack(false, false)
+		if err != nil {
+			return handleAckTypeError(acktype, err)
+		}
+	default:
 		log.Printf("unknown AckType: %v; discarding message", acktype)
 		err := message.Nack(false, false)
 		if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	gamelogic "github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	pubsub "github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -65,7 +66,7 @@ func main() {
 		routing.WarRecognitionsPrefix,
 		routing.WarRecognitionsPrefix+".*",
 		pubsub.SimpleQueueDurable,
-		handlerWar(gameState),
+		handlerWar(gameState, publishCh),
 	)
 	if err != nil {
 		failOnError(err, "Failed to subscribe to queue")
@@ -152,20 +153,62 @@ func handlerMove(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogi
 	}
 }
 
-func handlerWar(gs *gamelogic.GameState) func(gamelogic.RecognitionOfWar) pubsub.AckType {
+func handlerWar(gs *gamelogic.GameState, publishCh *amqp.Channel) func(gamelogic.RecognitionOfWar) pubsub.AckType {
 	return func(rw gamelogic.RecognitionOfWar) pubsub.AckType {
 		defer fmt.Print("> ")
-		outcome, _, _ := gs.HandleWar(rw)
+		outcome, winner, loser := gs.HandleWar(rw)
 		switch outcome {
 		case gamelogic.WarOutcomeNotInvolved:
 			return pubsub.NackRequeue
 		case gamelogic.WarOutcomeNoUnits:
 			return pubsub.NackDiscard
 		case gamelogic.WarOutcomeOpponentWon:
+			err := pubsub.PublishGob(
+				publishCh,
+				routing.ExchangePerilTopic,
+				routing.GameLogSlug+"."+gs.GetPlayerSnap().Username,
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     winner + " won a war against " + loser,
+					Username:    gs.GetPlayerSnap().Username,
+				},
+			)
+			if err != nil {
+				fmt.Printf("error: %s\n", err)
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		case gamelogic.WarOutcomeYouWon:
+			err := pubsub.PublishGob(
+				publishCh,
+				routing.ExchangePerilTopic,
+				routing.GameLogSlug+"."+gs.GetPlayerSnap().Username,
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     winner + " won a war against " + loser,
+					Username:    gs.GetPlayerSnap().Username,
+				},
+			)
+			if err != nil {
+				fmt.Printf("error: %s\n", err)
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		case gamelogic.WarOutcomeDraw:
+			err := pubsub.PublishGob(
+				publishCh,
+				routing.ExchangePerilTopic,
+				routing.GameLogSlug+"."+gs.GetPlayerSnap().Username,
+				routing.GameLog{
+					CurrentTime: time.Now(),
+					Message:     "A war between " + winner + " and " + loser + " resulted in a draw",
+					Username:    gs.GetPlayerSnap().Username,
+				},
+			)
+			if err != nil {
+				fmt.Printf("error: %s\n", err)
+				return pubsub.NackRequeue
+			}
 			return pubsub.Ack
 		}
 		fmt.Println("error: unknown war outcome")
